@@ -1,8 +1,3 @@
-"""
-Real-Time Market Anomaly Detector
-Main application entry point using Pathway for live data processing.
-"""
-
 import asyncio
 import logging
 from pathlib import Path
@@ -158,7 +153,7 @@ def main():
                 snapshot_frequency_millis=30000,  # Snapshot every 30 seconds
             )
         )
-        
+         
     except KeyboardInterrupt:
         logger.info("🛑 Shutting down gracefully...")
     except Exception as e:
