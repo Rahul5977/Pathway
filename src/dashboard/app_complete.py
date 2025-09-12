@@ -1,8 +1,3 @@
-"""
-Streamlit Dashboard for Real-Time Market Anomaly Detection
-Interactive dashboard showing live market data, anomalies, and AI insights.
-"""
-
 import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
@@ -24,67 +19,67 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
-st.markdown("""
-<style>
-.main-header {
-    background: linear-gradient(90deg, #1e3a8a 0%, #3b82f6 100%);
-    padding: 1rem;
-    border-radius: 10px;
-    color: white;
-    text-align: center;
-    margin-bottom: 2rem;
-}
+# Theme toggle
+if 'theme' not in st.session_state:
+    st.session_state['theme'] = 'light'
+theme = st.sidebar.radio("Theme", ["light", "dark"], index=0)
+st.session_state['theme'] = theme
+if theme == "dark":
+    st.markdown("""
+        <style>
+        body { background-color: #181818; color: #eaeaea; }
+        .main-header { background: linear-gradient(90deg, #0f172a 0%, #3b82f6 100%); color: #fff; }
+        .metric-card { background: #222; color: #fff; }
+        .alert-high { background-color: #2d0a0a; border: 1px solid #fecaca; }
+        .alert-medium { background-color: #2d1a0a; border: 1px solid #fed7aa; }
+        .alert-low { background-color: #0a2d1a; border: 1px solid #bbf7d0; }
+        </style>
+    """, unsafe_allow_html=True)
 
-.metric-card {
-    background: white;
-    padding: 1rem;
-    border-radius: 10px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    border-left: 4px solid #3b82f6;
-}
+# Enhanced header
+st.markdown('''<div class="main-header">
+    <img src="https://img.icons8.com/color/96/stock-market.png" style="vertical-align:middle;margin-right:10px;"/>
+    <h1 style="display:inline;">Real-Time Market Anomaly Detector</h1>
+    <p style="margin-top:10px;">AI-Powered Financial Market Monitoring &amp; Explanations</p>
+</div>''', unsafe_allow_html=True)
 
-.anomaly-high {
-    border-left-color: #ef4444 !important;
-    background-color: #fef2f2;
-}
+# Sidebar layout
+st.sidebar.markdown("---")
+st.sidebar.title("🔧 Controls")
 
-.anomaly-medium {
-    border-left-color: #f59e0b !important;
-    background-color: #fffbeb;
-}
+# Auto-refresh toggle
+auto_refresh = st.sidebar.checkbox("Auto Refresh", value=True)
 
-.anomaly-low {
-    border-left-color: #10b981 !important;
-    background-color: #f0fdf4;
-}
-
-.alert-container {
-    padding: 1rem;
-    border-radius: 8px;
-    margin: 0.5rem 0;
-}
-
-.alert-high {
-    background-color: #fef2f2;
-    border: 1px solid #fecaca;
-}
-
-.alert-medium {
-    background-color: #fffbeb;
-    border: 1px solid #fed7aa;
-}
-
-.alert-low {
-    background-color: #f0fdf4;
-    border: 1px solid #bbf7d0;
-}
-</style>
-""", unsafe_allow_html=True)
+# Manual refresh button
+if st.sidebar.button("🔄 Refresh Now"):
+    st.rerun()
 
 # Configuration
 API_BASE_URL = "http://localhost:8000"
-REFRESH_INTERVAL = 5  # seconds
+REFRESH_INTERVAL = 60  # seconds
+
+st.sidebar.markdown("---")
+st.sidebar.title("🎬 Demo Controls")
+if st.sidebar.button("🎯 Simulate Anomaly"):
+    try:
+        symbol = st.sidebar.selectbox("Symbol", ["AAPL", "GOOGL", "MSFT", "TSLA", "NVDA"])
+        severity = st.sidebar.slider("Severity", 1.0, 5.0, 3.0)
+        response = requests.post(
+            f"{API_BASE_URL}/simulate-anomaly",
+            params={"symbol": symbol, "severity": severity},
+            timeout=5
+        )
+        if response.status_code == 200:
+            st.sidebar.success(f"Simulated anomaly for {symbol}")
+        else:
+            st.sidebar.error("Failed to simulate anomaly")
+    except:
+        st.sidebar.error("API not available")
+
+st.sidebar.markdown("---")
+st.sidebar.title("⚙️ Advanced")
+with st.sidebar.expander("Advanced Controls"):
+    st.write("Coming soon: Custom thresholds, symbol selection, export data...")
 
 # Initialize session state
 if 'last_refresh' not in st.session_state:
@@ -292,7 +287,6 @@ def main():
     if st.sidebar.button("🔄 Refresh Now"):
         st.rerun()
     
-    # Demo controls
     st.sidebar.title("🎬 Demo Controls")
     if st.sidebar.button("🎯 Simulate Anomaly"):
         try:
@@ -330,18 +324,18 @@ def main():
         
         # Metrics
         with col1:
-            st.metric("📊 Symbols Monitored", len(set(item.get('symbol', '') for item in market_data)))
+            st.markdown('<div class="metric-card"><span style="font-size:2em;">📊</span><br><b>Symbols Monitored</b><br>' + str(len(set(item.get('symbol', '') for item in market_data))) + '</div>', unsafe_allow_html=True)
         
         with col2:
             active_alerts = len([a for a in alerts_data if a.get('priority') in ['HIGH', 'MEDIUM']])
-            st.metric("🚨 Active Alerts", active_alerts)
+            st.markdown('<div class="metric-card"><span style="font-size:2em;">🚨</span><br><b>Active Alerts</b><br>' + str(active_alerts) + '</div>', unsafe_allow_html=True)
         
         with col3:
             total_anomalies = len(anomalies_data)
-            st.metric("🔍 Anomalies Detected", total_anomalies)
+            st.markdown('<div class="metric-card"><span style="font-size:2em;">🔍</span><br><b>Anomalies Detected</b><br>' + str(total_anomalies) + '</div>', unsafe_allow_html=True)
         
         with col4:
-            st.metric("⏰ Last Update", datetime.now().strftime("%H:%M:%S"))
+            st.markdown('<div class="metric-card"><span style="font-size:2em;">⏰</span><br><b>Last Update</b><br>' + datetime.now().strftime("%H:%M:%S") + '</div>', unsafe_allow_html=True)
         
         # Charts
         st.plotly_chart(create_price_chart(market_data), use_container_width=True)
@@ -400,3 +394,11 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Footer
+st.markdown("""
+---
+<div style='text-align:center;'>
+    <small>Made for Pathway LiveAI Hackathon | <a href='https://github.com/your-repo' target='_blank'>GitHub</a> | <a href='https://pathway.com' target='_blank'>Pathway</a></small>
+</div>
+""", unsafe_allow_html=True)
