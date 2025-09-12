@@ -184,7 +184,7 @@ This application addresses the critical problem of stale AI in fast-moving finan
 1. Clone the repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/Rahul5977/Pathway
 cd pathway-market-anomaly-detector
 ```
 
