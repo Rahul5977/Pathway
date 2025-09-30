@@ -9,7 +9,8 @@
 .LSOverride
 
 # Icon must end with two \r
-Icon
+Icon
+
 
 # Thumbnails
 ._*
@@ -228,4 +229,19 @@ pyrightconfig.json
 # End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,macos,python
 
 # Custom rules (everything added below won't be overriden by 'Generate .gitignore File' if you use 'Update' option)
+
+# Temporary data files (real-time generated market data)
+data/input/market_*.json
+data/input/news/news_*.json
+data/output/*.jsonl
+data/chroma_db/
+data/persistence/
+pathway_data/
+logs/
+
+# Keep demo data and directory structure
+!data/demo/
+!data/input/news/.gitkeep
+!data/input/.gitkeep
+!data/output/.gitkeep
 
