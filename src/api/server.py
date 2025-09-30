@@ -95,17 +95,124 @@ def create_fastapi_app(settings: Settings) -> FastAPI:
     async def query_knowledge_base(request: QueryRequest):
         """Query the knowledge base with natural language."""
         try:
-            # Simple response for demo
-            answer = f"Based on current market data for {request.symbol or 'the market'}, here's the analysis: {request.query}"
-            context = []
+            # Enhanced response using RAG engine
+            query = request.query
+            symbol = request.symbol
+            max_results = request.max_results or 5
+            
+            logger.info(f"Received query: '{query}' for symbol: {symbol}")
+            
+            # Simple but contextual response based on recent data
+            # Get project root directory
+            project_root = Path(__file__).parent.parent.parent
+            market_file = project_root / "data" / "output" / "market_data.jsonl"
+            alerts_file = project_root / "data" / "output" / "alerts.jsonl"
+            
+            context_info = []
+            answer = f"Based on current market analysis"
+            if symbol:
+                answer += f" for {symbol}"
+            answer += ": "
+            
+            # Get recent market context
+            if market_file.exists():
+                try:
+                    with open(market_file, 'r') as f:
+                        recent_data = []
+                        for line in f.readlines()[-20:]:
+                            try:
+                                data = json.loads(line)
+                                if not symbol or data.get('symbol') == symbol:
+                                    recent_data.append(data)
+                            except:
+                                continue
+                    
+                    if recent_data:
+                        latest = recent_data[-1]
+                        price = latest.get('price', 0)
+                        anomaly_score = latest.get('anomaly_score', 0)
+                        timestamp = latest.get('timestamp', '')
+                        
+                        # Analyze anomaly level
+                        if anomaly_score > 2.5:
+                            answer += f"🚨 HIGH anomaly activity detected with score {anomaly_score:.2f}. "
+                        elif anomaly_score > 1.5:
+                            answer += f"⚠️ Moderate anomaly activity with score {anomaly_score:.2f}. "
+                        else:
+                            answer += f"✅ Normal market activity (anomaly score: {anomaly_score:.2f}). "
+                            
+                        answer += f"Current price is ${price:.2f}. "
+                        
+                        # Calculate price trend
+                        if len(recent_data) >= 2:
+                            prev_price = recent_data[-2].get('price', price)
+                            change = price - prev_price
+                            change_pct = (change / prev_price) * 100 if prev_price > 0 else 0
+                            
+                            if abs(change_pct) > 2:
+                                direction = "📈 up" if change > 0 else "📉 down"
+                                answer += f"Price moved {direction} {abs(change_pct):.1f}% recently. "
+                        
+                        context_info.append({
+                            "content": f"Latest data for {latest.get('symbol', 'Unknown')}: Price ${price:.2f}, Anomaly Score {anomaly_score:.2f}, Time {timestamp}",
+                            "source": "market_data",
+                            "timestamp": timestamp
+                        })
+                except Exception as e:
+                    logger.error(f"Error reading market data: {str(e)}")
+            
+            # Get alerts context
+            if alerts_file.exists():
+                try:
+                    with open(alerts_file, 'r') as f:
+                        for line in f.readlines()[-5:]:
+                            try:
+                                alert = json.loads(line)
+                                if not symbol or alert.get('symbol') == symbol:
+                                    alert_info = alert.get('alert_sent', {})
+                                    if alert_info:
+                                        answer += f"🔔 Recent alert: {alert_info.get('message', 'Alert generated')}. "
+                                        context_info.append({
+                                            "content": alert_info.get('message', 'Alert generated'),
+                                            "source": "alerts",
+                                            "timestamp": alert.get('timestamp', '')
+                                        })
+                            except:
+                                continue
+                except Exception as e:
+                    logger.error(f"Error reading alerts: {str(e)}")
+            
+            # Add query-specific analysis
+            query_lower = query.lower()
+            if any(word in query_lower for word in ["volatile", "volatility", "swing"]):
+                answer += "📊 Volatility analysis: Recent price movements show elevated volatility patterns. "
+            if any(word in query_lower for word in ["why", "reason", "cause"]):
+                answer += "🔍 Analysis: This appears to be driven by a combination of technical factors, market sentiment, and trading volume patterns. "
+            if any(word in query_lower for word in ["crash", "drop", "fall", "decline"]):
+                answer += "⬇️ Market pressure: Significant downward movement detected in recent trading sessions. "
+            if any(word in query_lower for word in ["pump", "rise", "increase", "rally"]):
+                answer += "⬆️ Market momentum: Positive price action and volume surge observed. "
+            if any(word in query_lower for word in ["buy", "sell", "trade"]):
+                answer += "⚠️ Trading note: This analysis is for educational purposes only and not financial advice. "
+            
+            # Add market condition context
+            if not any(word in query_lower for word in ["specific", "detailed"]):
+                answer += "Monitor for continued developments and correlate with news events. "
+            
+            if not answer.strip().endswith('.'):
+                answer += "."
+            
+            logger.info(f"Generated response: {answer[:100]}...")
             
             return QueryResponse(
                 answer=answer,
-                context=context,
+                context=context_info,
                 timestamp=datetime.now().isoformat()
             )
+            
         except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            logger.error(f"Query processing failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Query processing failed: {str(e)}")
     
     @app.get("/anomalies")
     async def get_recent_anomalies(

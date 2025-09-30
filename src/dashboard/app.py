@@ -100,33 +100,50 @@ def load_data_from_files():
     market_data = []
     anomalies_data = []
     
+    # Use absolute paths relative to project root
+    project_root = Path(__file__).parent.parent.parent
+    market_file = project_root / "data" / "output" / "market_data.jsonl"
+    alerts_file = project_root / "data" / "output" / "alerts.jsonl"
+    
     # Load market data
-    market_file = Path("./data/output/market_data.jsonl")
     if market_file.exists():
         try:
             with open(market_file, 'r') as f:
-                for line in f.readlines()[-50:]:  # Last 50 entries
+                lines = f.readlines()
+                for line in lines[-100:]:  # Last 100 entries for better visualization
                     try:
-                        data = json.loads(line)
+                        data = json.loads(line.strip())
                         market_data.append(data)
                     except:
                         continue
-        except:
-            pass
+        except Exception as e:
+            st.error(f"Error loading market data: {str(e)}")
     
-    # Load anomalies
-    alerts_file = Path("./data/output/alerts.jsonl")
+    # Load anomalies/alerts
     if alerts_file.exists():
         try:
             with open(alerts_file, 'r') as f:
-                for line in f.readlines()[-20:]:  # Last 20 entries
+                lines = f.readlines()
+                for line in lines[-50:]:  # Last 50 entries
                     try:
-                        data = json.loads(line)
-                        anomalies_data.append(data)
+                        data = json.loads(line.strip())
+                        # Handle the new alert structure
+                        if data.get('alert_sent') and data.get('is_anomaly'):
+                            anomaly_item = {
+                                'symbol': data.get('symbol', 'Unknown'),
+                                'anomaly_score': data.get('anomaly_score', 0),
+                                'timestamp': data.get('timestamp', ''),
+                                'priority': 'HIGH' if data.get('anomaly_score', 0) > 4 else 'MEDIUM' if data.get('anomaly_score', 0) > 2 else 'LOW',
+                                'message': data.get('ai_analysis', 'Alert generated'),
+                                'explanation': data.get('explanation', ''),
+                                'price': data.get('price', 0),
+                                'risk_assessment': data.get('risk_assessment', 'LOW')
+                            }
+                            anomalies_data.append(anomaly_item)
                     except:
                         continue
-        except:
-            pass
+        except Exception as e:
+            st.error(f"Error loading alerts data: {str(e)}")
     
     return market_data, anomalies_data
 
@@ -166,29 +183,47 @@ def create_price_chart(market_data: List[Dict]) -> go.Figure:
         fig.add_annotation(text="No market data available", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
         return fig
     
-    # Group by symbol
+    # Group by symbol and sort by timestamp
     symbols = {}
     for item in market_data:
         symbol = item.get('symbol', 'Unknown')
         if symbol not in symbols:
             symbols[symbol] = {'timestamps': [], 'prices': [], 'anomaly_scores': []}
         
-        symbols[symbol]['timestamps'].append(item.get('timestamp', ''))
-        symbols[symbol]['prices'].append(item.get('price', 0))
-        symbols[symbol]['anomaly_scores'].append(item.get('anomaly_score', 0))
+        # Parse timestamp
+        timestamp_str = item.get('timestamp', '')
+        try:
+            timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+        except:
+            timestamp = datetime.now()
+        
+        symbols[symbol]['timestamps'].append(timestamp)
+        symbols[symbol]['prices'].append(float(item.get('price', 0)))
+        symbols[symbol]['anomaly_scores'].append(float(item.get('anomaly_score', 0)))
+    
+    # Sort data by timestamp for each symbol
+    for symbol in symbols:
+        data = symbols[symbol]
+        sorted_indices = sorted(range(len(data['timestamps'])), key=lambda i: data['timestamps'][i])
+        data['timestamps'] = [data['timestamps'][i] for i in sorted_indices]
+        data['prices'] = [data['prices'][i] for i in sorted_indices]
+        data['anomaly_scores'] = [data['anomaly_scores'][i] for i in sorted_indices]
     
     fig = go.Figure()
     
-    # Add price traces
-    for symbol, data in symbols.items():
+    # Add price traces with color coding based on anomaly score
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
+    for i, (symbol, data) in enumerate(symbols.items()):
         fig.add_trace(
             go.Scatter(
                 x=data['timestamps'],
                 y=data['prices'],
                 mode='lines+markers',
                 name=symbol,
-                line=dict(width=2),
-                hovertemplate=f"<b>{symbol}</b><br>Price: $%{{y:.2f}}<br>Time: %{{x}}<extra></extra>"
+                line=dict(width=2, color=colors[i % len(colors)]),
+                marker=dict(size=4),
+                hovertemplate=f"<b>{symbol}</b><br>Price: $%{{y:.2f}}<br>Time: %{{x}}<br>Anomaly Score: %{{customdata:.2f}}<extra></extra>",
+                customdata=data['anomaly_scores']
             )
         )
     
@@ -197,7 +232,9 @@ def create_price_chart(market_data: List[Dict]) -> go.Figure:
         xaxis_title="Time",
         yaxis_title="Price ($)",
         height=400,
-        showlegend=True
+        showlegend=True,
+        xaxis=dict(type='date'),
+        hovermode='x unified'
     )
     
     return fig
@@ -214,12 +251,22 @@ def create_anomaly_chart(anomalies_data: List[Dict]) -> go.Figure:
     scores = []
     timestamps = []
     colors = []
+    messages = []
     
     for item in anomalies_data:
         symbols.append(item.get('symbol', 'Unknown'))
-        score = item.get('anomaly_score', 0)
+        score = float(item.get('anomaly_score', 0))
         scores.append(score)
-        timestamps.append(item.get('timestamp', ''))
+        
+        # Parse timestamp
+        timestamp_str = item.get('timestamp', '')
+        try:
+            timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+        except:
+            timestamp = datetime.now()
+        timestamps.append(timestamp)
+        
+        messages.append(item.get('message', item.get('explanation', 'Anomaly detected')))
         
         # Color based on severity
         if score > 4:
@@ -227,27 +274,33 @@ def create_anomaly_chart(anomalies_data: List[Dict]) -> go.Figure:
         elif score > 2:
             colors.append('orange')
         else:
-            colors.append('yellow')
+            colors.append('green')
     
     fig = go.Figure(data=go.Scatter(
         x=timestamps,
         y=scores,
         mode='markers',
         marker=dict(
-            size=10,
+            size=12,
             color=colors,
-            opacity=0.7
+            opacity=0.8,
+            line=dict(width=1, color='white')
         ),
         text=symbols,
-        hovertemplate="<b>%{text}</b><br>Anomaly Score: %{y:.2f}<br>Time: %{x}<extra></extra>"
+        customdata=messages,
+        hovertemplate="<b>%{text}</b><br>Anomaly Score: %{y:.2f}<br>Time: %{x}<br>Details: %{customdata}<extra></extra>"
     ))
     
     fig.update_layout(
         title="Anomaly Detection Timeline",
         xaxis_title="Time",
         yaxis_title="Anomaly Score",
-        height=300
+        height=300,
+        xaxis=dict(type='date'),
+        yaxis=dict(range=[0, max(scores) + 1 if scores else 5])
     )
+    
+    return fig
     
     return fig
 
@@ -258,22 +311,46 @@ def display_alerts(alerts_data: List[Dict]):
         st.info("No active alerts")
         return
     
-    for alert in alerts_data[-10:]:  # Show last 10 alerts
+    # Sort alerts by timestamp (most recent first)
+    sorted_alerts = sorted(alerts_data, key=lambda x: x.get('timestamp', ''), reverse=True)
+    
+    for alert in sorted_alerts[:10]:  # Show last 10 alerts
         priority = alert.get('priority', 'LOW')
         symbol = alert.get('symbol', 'Unknown')
         message = alert.get('message', 'No message')
         timestamp = alert.get('timestamp', '')
+        explanation = alert.get('explanation', '')
+        anomaly_score = alert.get('anomaly_score', 0)
         
-        # Color based on priority
-        if priority == 'HIGH':
-            st.error(f"🚨 **{priority}** - {symbol}: {message}")
-        elif priority == 'MEDIUM':
-            st.warning(f"⚠️ **{priority}** - {symbol}: {message}")
-        else:
-            st.info(f"ℹ️ **{priority}** - {symbol}: {message}")
+        # Format timestamp
+        try:
+            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            time_str = dt.strftime("%H:%M:%S")
+        except:
+            time_str = timestamp
         
-        if timestamp:
-            st.caption(f"Time: {timestamp}")
+        # Create alert container
+        with st.container():
+            # Color based on priority
+            if priority == 'HIGH':
+                st.error(f"🚨 **{priority}** - {symbol}: {message}")
+            elif priority == 'MEDIUM':
+                st.warning(f"⚠️ **{priority}** - {symbol}: {message}")
+            else:
+                st.info(f"ℹ️ **{priority}** - {symbol}: {message}")
+            
+            # Additional details
+            col1, col2 = st.columns(2)
+            with col1:
+                if time_str:
+                    st.caption(f"⏰ Time: {time_str}")
+            with col2:
+                st.caption(f"📊 Score: {anomaly_score:.2f}")
+            
+            if explanation:
+                st.caption(f"💡 {explanation}")
+            
+            st.divider()
 
 
 def main():
@@ -314,19 +391,30 @@ def main():
     # Main content
     col1, col2, col3, col4 = st.columns(4)
     
-    # Load data
+    # Load data with better error handling
     try:
-        # Try API first, fallback to files
-        market_response = fetch_api_data("/market-data")
-        alerts_response = fetch_api_data("/alerts")
+        # Always try to load from files first (more reliable for demo)
+        market_data, anomalies_data = load_data_from_files()
         
-        if "error" in market_response:
-            market_data, anomalies_data = load_data_from_files()
-            alerts_data = anomalies_data
-        else:
-            market_data = market_response.get('data', [])
-            alerts_data = alerts_response.get('alerts', [])
-            anomalies_data = alerts_data
+        # Also try API for additional data if available
+        try:
+            market_response = fetch_api_data("/market-data")
+            alerts_response = fetch_api_data("/alerts")
+            
+            if "error" not in market_response and market_response.get('data'):
+                api_market_data = market_response.get('data', [])
+                # Merge with file data (prefer more recent data)
+                all_symbols = set(item.get('symbol') for item in market_data + api_market_data)
+                market_data = api_market_data if api_market_data else market_data
+            
+            if "error" not in alerts_response and alerts_response.get('alerts'):
+                alerts_data = alerts_response.get('alerts', [])
+                anomalies_data = alerts_data if alerts_data else anomalies_data
+        except:
+            # Use file data as fallback
+            pass
+        
+        alerts_data = anomalies_data
         
         # Metrics
         with col1:
@@ -388,10 +476,22 @@ def main():
             else:
                 st.info("No market data available")
         
-        # Auto-refresh
+        # Auto-refresh with better UX
         if auto_refresh:
-            time.sleep(REFRESH_INTERVAL)
-            st.rerun()
+            # Check if enough time has passed since last refresh
+            time_since_refresh = (datetime.now() - st.session_state.last_refresh).total_seconds()
+            
+            if time_since_refresh >= REFRESH_INTERVAL:
+                st.session_state.last_refresh = datetime.now()
+                st.rerun()
+            else:
+                # Show next refresh time
+                remaining = int(REFRESH_INTERVAL - time_since_refresh)
+                st.sidebar.info(f"⏰ Next refresh in {remaining}s")
+                
+                # Auto-refresh after a short delay
+                time.sleep(1)
+                st.rerun()
     
     except Exception as e:
         st.error(f"❌ Dashboard error: {str(e)}")
