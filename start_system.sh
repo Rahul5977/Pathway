@@ -33,14 +33,14 @@ fi
 
 # Install dependencies if not already installed
 echo "📦 Checking dependencies..."
-python -c "import pathway" 2>/dev/null || {
+/Users/rahulraj/Desktop/Pathway/.venv/bin/python -c "import pathway" 2>/dev/null || {
     echo "Installing dependencies..."
-    pip install -r requirements.txt
+    /Users/rahulraj/Desktop/Pathway/.venv/bin/pip install -r requirements.txt
 }
 
 # Start the main Pathway pipeline in background
 echo "🔄 Starting Pathway pipeline..."
-python src/main.py &
+/Users/rahulraj/Desktop/Pathway/.venv/bin/python src/main.py &
 PATHWAY_PID=$!
 echo "   Pathway PID: $PATHWAY_PID"
 
@@ -49,7 +49,7 @@ sleep 5
 
 # Start the FastAPI server in background
 echo "🌐 Starting API server..."
-cd src && python -m api.server &
+cd src && /Users/rahulraj/Desktop/Pathway/.venv/bin/python -m api.server &
 API_PID=$!
 cd ..
 echo "   API PID: $API_PID"
@@ -81,7 +81,7 @@ echo "$PATHWAY_PID" > .pathway.pid
 echo "$API_PID" > .api.pid
 
 # Start Streamlit dashboard (this will block)
-streamlit run src/dashboard/app.py --server.port 8501
+/Users/rahulraj/Desktop/Pathway/.venv/bin/streamlit run src/dashboard/app.py --server.port 8501
 
 # Cleanup function
 cleanup() {
