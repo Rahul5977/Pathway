@@ -111,7 +111,7 @@ class MarketDataConnector(BaseConnector):
         
         # Create Pathway stream from JSON files
         return pw.io.fs.read(
-            "./data/input",
+            "./data/input/market_*.json",
             format="json",
             schema=MarketDataSchema,
             mode="streaming"
