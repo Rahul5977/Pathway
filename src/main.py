@@ -7,9 +7,9 @@ from datetime import datetime
 
 from config.settings import Settings
 from data.connectors import MarketDataConnector, NewsConnector
-from data.processors import AnomalyDetector, DataProcessor
-from ai.rag import RAGEngine
-from ai.agents import AnomalyAnalystAgent, AlertManagerAgent
+from data.processors_simple import AnomalyDetector, DataProcessor
+from ai.rag_simple import RAGEngine
+from ai.agents_simple import AnomalyAnalystAgent, AlertManagerAgent
 from api.server import create_fastapi_app
 from utils.logger import setup_logger
 
@@ -53,15 +53,19 @@ class MarketAnomalyDetectorPipeline:
         )
         
         # Detect anomalies in real-time
-        anomalies = processed_market.select(
+        market_with_anomalies = processed_market.select(
             **pw.this,
-            anomaly_score=anomaly_detector.detect_anomaly(pw.this),
+            anomaly_score=anomaly_detector.detect_anomaly(pw.this)
+        )
+        
+        anomalies = market_with_anomalies.select(
+            **pw.this,
             is_anomaly=anomaly_detector.is_anomaly(pw.this.anomaly_score)
         ).filter(pw.this.is_anomaly)
         
         # 3. Live RAG indexing - Index news and market data for context
         indexed_news = self.rag_engine.index_documents(news_stream)
-        indexed_market = self.rag_engine.index_market_data(processed_market)
+        indexed_market = self.rag_engine.index_market_data(market_with_anomalies)
         
         # 4. AI Agent processing for anomalies
         analyzed_anomalies = anomalies.select(
@@ -88,12 +92,13 @@ class MarketAnomalyDetectorPipeline:
         )
         
         pw.io.jsonlines.write(
-            processed_market,
+            market_with_anomalies,
             "./data/output/market_data.jsonl"
         )
         
         return {
             'market_stream': market_stream,
+            'market_with_anomalies': market_with_anomalies,
             'anomalies': anomalies,
             'analyzed_anomalies': analyzed_anomalies,
             'alerts': alerts
@@ -147,10 +152,9 @@ def main():
         
         # Run Pathway pipeline (blocking)
         pw.run(
-            monitoring_level=getattr(pw.MonitoringLevel, settings.PATHWAY_MONITORING_LEVEL),
+            monitoring_level=pw.MonitoringLevel.AUTO,
             persistence_config=pw.persistence.Config.simple_config(
-                pw.persistence.Backend.filesystem(settings.PATHWAY_PERSISTENCE_DIR),
-                snapshot_frequency_millis=30000,  # Snapshot every 30 seconds
+                pw.persistence.Backend.filesystem(settings.PATHWAY_PERSISTENCE_DIR)
             )
         )
          
