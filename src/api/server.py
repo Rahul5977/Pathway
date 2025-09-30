@@ -154,7 +154,7 @@ def create_fastapi_app(settings: Settings) -> FastAPI:
     ):
         """Get active alerts from the system."""
         try:
-            alerts_file = Path("../data/output/alerts.jsonl").resolve()
+            alerts_file = Path("./data/output/alerts.jsonl").resolve()
             if not alerts_file.exists():
                 return {"alerts": [], "total_count": 0, "timestamp": datetime.now().isoformat()}
             
@@ -198,7 +198,7 @@ def create_fastapi_app(settings: Settings) -> FastAPI:
     ):
         """Get latest market data."""
         try:
-            market_file = Path("../data/output/market_data.jsonl").resolve()
+            market_file = Path("./data/output/market_data.jsonl").resolve()
             if not market_file.exists():
                 return {"data": [], "count": 0}
             
@@ -271,7 +271,7 @@ def create_fastapi_app(settings: Settings) -> FastAPI:
             }
             
             # Save to alerts file for demo
-            alerts_file = Path("../data/output/alerts.jsonl").resolve()
+            alerts_file = Path("./data/output/alerts.jsonl").resolve()
             alerts_file.parent.mkdir(parents=True, exist_ok=True)
             
             with open(alerts_file, 'a') as f:
