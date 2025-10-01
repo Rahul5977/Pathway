@@ -362,11 +362,16 @@ def main():
     # Sidebar
     st.sidebar.title("🔧 Controls")
     
-    # Auto-refresh toggle
+    # Auto-refresh toggle with live update capability
     auto_refresh = st.sidebar.checkbox("Auto Refresh", value=True)
+    refresh_rate = st.sidebar.selectbox("Refresh Rate", [5, 10, 15, 30], index=0, format_func=lambda x: f"{x} seconds")
     
-    # Manual refresh button
+    # Update refresh interval based on selection
+    REFRESH_INTERVAL = refresh_rate
+    
+    # Force refresh button
     if st.sidebar.button("🔄 Refresh Now"):
+        st.cache_data.clear()  # Clear any cached data
         st.rerun()
     
     # Demo controls
@@ -391,10 +396,22 @@ def main():
     # Main content
     col1, col2, col3, col4 = st.columns(4)
     
-    # Load data with better error handling
+    # Load data with better error handling and cache busting
     try:
-        # Always try to load from files first (more reliable for demo)
-        market_data, anomalies_data = load_data_from_files()
+        # Load fresh data using cached function
+        market_data, anomalies_data = get_fresh_data()
+        
+        # Store in session state for reference
+        st.session_state.market_data = market_data
+        st.session_state.anomalies_data = anomalies_data
+        
+        # Debug info
+        if st.sidebar.checkbox("Show Debug Info", value=False):
+            st.sidebar.text(f"Market data: {len(market_data)} points")
+            st.sidebar.text(f"Anomalies: {len(anomalies_data)} points")
+            if market_data:
+                latest_time = market_data[-1].get('timestamp', 'Unknown')
+                st.sidebar.text(f"Latest: {latest_time[-8:] if len(latest_time) > 8 else latest_time}")
         
         # Also try API for additional data if available
         try:
@@ -431,9 +448,18 @@ def main():
         with col4:
             st.metric("⏰ Last Update", datetime.now().strftime("%H:%M:%S"))
         
-        # Charts
-        st.plotly_chart(create_price_chart(market_data), use_container_width=True)
-        st.plotly_chart(create_anomaly_chart(anomalies_data), use_container_width=True)
+        # Charts with real-time data
+        chart_container = st.container()
+        with chart_container:
+            # Add timestamp to show when charts were last updated
+            col_chart1, col_chart2 = st.columns([3, 1])
+            with col_chart1:
+                st.plotly_chart(create_price_chart(market_data), use_container_width=True, key=f"price_chart_{datetime.now().timestamp()}")
+            with col_chart2:
+                st.metric("📊 Data Points", len(market_data))
+                st.metric("🔄 Last Update", datetime.now().strftime("%H:%M:%S"))
+        
+        st.plotly_chart(create_anomaly_chart(anomalies_data), use_container_width=True, key=f"anomaly_chart_{datetime.now().timestamp()}")
         
         # Two columns for content
         col_left, col_right = st.columns([2, 1])
@@ -476,26 +502,43 @@ def main():
             else:
                 st.info("No market data available")
         
-        # Auto-refresh with better UX
+        # Simple and reliable auto-refresh with JavaScript timer
         if auto_refresh:
-            # Check if enough time has passed since last refresh
-            time_since_refresh = (datetime.now() - st.session_state.last_refresh).total_seconds()
+            # Get current time and last refresh time
+            current_time = datetime.now()
+            time_since_refresh = (current_time - st.session_state.last_refresh).total_seconds()
             
-            if time_since_refresh >= REFRESH_INTERVAL:
-                st.session_state.last_refresh = datetime.now()
-                st.rerun()
-            else:
-                # Show next refresh time
-                remaining = int(REFRESH_INTERVAL - time_since_refresh)
-                st.sidebar.info(f"⏰ Next refresh in {remaining}s")
+            # Show countdown in sidebar
+            remaining = max(0, int(REFRESH_INTERVAL - time_since_refresh))
+            
+            if remaining > 0:
+                st.sidebar.info(f"🔄 Auto-refresh in {remaining}s")
                 
-                # Auto-refresh after a short delay
-                time.sleep(1)
+                # Add a simple JavaScript timer that refreshes the page
+                st.markdown(
+                    f"""
+                    <script>
+                    setTimeout(function(){{
+                        window.location.reload(1);
+                    }}, {remaining * 1000});
+                    </script>
+                    """,
+                    unsafe_allow_html=True
+                )
+            else:
+                st.sidebar.success("🔄 Refreshing...")
+                st.session_state.last_refresh = current_time
                 st.rerun()
-    
+        
     except Exception as e:
         st.error(f"❌ Dashboard error: {str(e)}")
         st.info("💡 Make sure the system is running with `./start_system.sh`")
+
+
+# Cache function for real-time data loading
+@st.cache_data(ttl=1)  # Cache for only 1 second to ensure fresh data
+def get_fresh_data():
+    return load_data_from_files()
 
 
 if __name__ == "__main__":
