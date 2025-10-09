@@ -17,6 +17,7 @@ This application addresses the critical problem of stale AI in fast-moving finan
 ## ✅ Project Status: COMPLETED
 
 **All major features implemented and tested:**
+
 - ✅ Real-time data ingestion and processing with Pathway
 - ✅ Live anomaly detection with AI-powered explanations
 - ✅ Interactive Streamlit dashboard with auto-refresh
@@ -25,6 +26,7 @@ This application addresses the critical problem of stale AI in fast-moving finan
 - ✅ Full GitHub integration with version control
 
 **Dashboard Features:**
+
 - 📊 Real-time price and volume charts
 - 🚨 Live anomaly detection and alerts
 - 🎯 Priority-based alert system (LOW/MEDIUM/HIGH)
@@ -633,11 +635,13 @@ streamlit run src/dashboard/app.py --server.port 8501
 ```
 
 **Access Points:**
+
 - 📊 **Dashboard**: http://localhost:8501 (Real-time charts & alerts)
 - 🔌 **API**: http://localhost:8000 (Data queries)
 - 📁 **Data Files**: `data/output/` (Live generated data)
 
 **Test the System:**
+
 ```bash
 # Run comprehensive tests
 python test_dashboard.py

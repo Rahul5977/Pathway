@@ -83,7 +83,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Configuration
-API_BASE_URL = "http://localhost:8000"
+API_BASE_URL = "http://localhost:8002"
 REFRESH_INTERVAL = 5  # seconds
 
 # Initialize session state
@@ -148,14 +148,18 @@ def load_data_from_files():
     return market_data, anomalies_data
 
 
-def fetch_api_data(endpoint: str) -> Dict:
+def fetch_api_data(endpoint: str, method: str = "GET", data: Dict = None) -> Dict:
     """Fetch data from API with fallback to file loading."""
     try:
-        response = requests.get(f"{API_BASE_URL}{endpoint}", timeout=5)
+        if method.upper() == "POST":
+            response = requests.post(f"{API_BASE_URL}{endpoint}", json=data, timeout=5)
+        else:
+            response = requests.get(f"{API_BASE_URL}{endpoint}", timeout=5)
+        
         response.raise_for_status()
         return response.json()
-    except:
-        return {"error": "API not available", "data": []}
+    except Exception as e:
+        return {"error": f"API not available: {str(e)}", "data": []}
 
 
 def query_knowledge_base(query: str, symbol: str = None) -> Dict:
@@ -301,6 +305,97 @@ def create_anomaly_chart(anomalies_data: List[Dict]) -> go.Figure:
     )
     
     return fig
+
+
+def create_sentiment_chart(sentiment_data: Dict[str, Dict]) -> go.Figure:
+    """Create sentiment forecast chart."""
+    if not sentiment_data:
+        # Return empty chart
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No sentiment data available",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, xanchor='center', yanchor='middle',
+            showarrow=False, font=dict(size=16, color="gray")
+        )
+        fig.update_layout(title="Sentiment Forecast", height=400)
+        return fig
+    
+    symbols = list(sentiment_data.keys())
+    current_sentiment = [sentiment_data[symbol]['current_sentiment'] for symbol in symbols]
+    predicted_sentiment = [sentiment_data[symbol]['prediction'] for symbol in symbols]
+    price_impact = [sentiment_data[symbol]['price_impact'] * 100 for symbol in symbols]  # Convert to percentage
+    confidence = [sentiment_data[symbol]['confidence'] * 100 for symbol in symbols]  # Convert to percentage
+    
+    # Create subplots
+    from plotly.subplots import make_subplots
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=("Current Sentiment", "Predicted Sentiment", "Price Impact Forecast", "Prediction Confidence"),
+        specs=[[{"type": "bar"}, {"type": "bar"}],
+               [{"type": "bar"}, {"type": "bar"}]]
+    )
+    
+    # Current Sentiment
+    fig.add_trace(
+        go.Bar(
+            x=symbols,
+            y=current_sentiment,
+            name="Current",
+            marker_color=['green' if x > 0 else 'red' if x < 0 else 'gray' for x in current_sentiment],
+            showlegend=False
+        ),
+        row=1, col=1
+    )
+    
+    # Predicted Sentiment
+    fig.add_trace(
+        go.Bar(
+            x=symbols,
+            y=predicted_sentiment,
+            name="Predicted",
+            marker_color=['lightgreen' if x > 0 else 'lightcoral' if x < 0 else 'lightgray' for x in predicted_sentiment],
+            showlegend=False
+        ),
+        row=1, col=2
+    )
+    
+    # Price Impact
+    fig.add_trace(
+        go.Bar(
+            x=symbols,
+            y=price_impact,
+            name="Price Impact %",
+            marker_color=['blue' if x > 0 else 'orange' if x < 0 else 'gray' for x in price_impact],
+            showlegend=False
+        ),
+        row=2, col=1
+    )
+    
+    # Confidence
+    fig.add_trace(
+        go.Bar(
+            x=symbols,
+            y=confidence,
+            name="Confidence %",
+            marker_color=['purple' if x > 70 else 'yellow' if x > 40 else 'red' for x in confidence],
+            showlegend=False
+        ),
+        row=2, col=2
+    )
+    
+    # Update layout
+    fig.update_layout(
+        title="Real-Time Sentiment Analysis & Forecasting",
+        height=500,
+        showlegend=False
+    )
+    
+    # Update y-axes
+    fig.update_yaxes(title_text="Sentiment Score", range=[-1, 1], row=1, col=1)
+    fig.update_yaxes(title_text="Predicted Score", range=[-1, 1], row=1, col=2)
+    fig.update_yaxes(title_text="Price Impact %", row=2, col=1)
+    fig.update_yaxes(title_text="Confidence %", range=[0, 100], row=2, col=2)
     
     return fig
 
@@ -413,6 +508,74 @@ def main():
                 latest_time = market_data[-1].get('timestamp', 'Unknown')
                 st.sidebar.text(f"Latest: {latest_time[-8:] if len(latest_time) > 8 else latest_time}")
         
+        # Sentiment Forecast Panel
+        st.sidebar.title("🔮 Sentiment Forecast")
+        try:
+            sentiment_symbol = st.sidebar.selectbox(
+                "Symbol for Prediction", 
+                ["AAPL", "GOOGL", "MSFT", "TSLA", "NVDA", "BTC-USD", "ETH-USD"],
+                key="sentiment_symbol"
+            )
+            
+            horizon = st.sidebar.selectbox(
+                "Prediction Horizon",
+                [5, 10, 15, 30, 60],
+                index=2,
+                format_func=lambda x: f"{x} minutes"
+            )
+            
+            if st.sidebar.button("🎯 Generate Prediction"):
+                with st.sidebar.spinner("Analyzing sentiment..."):
+                    sentiment_response = fetch_api_data(
+                        "/predict-sentiment-impact",
+                        method="POST",
+                        data={"symbol": sentiment_symbol, "horizon": horizon}
+                    )
+                    
+                    if sentiment_response:
+                        pred = sentiment_response
+                        
+                        # Display prediction
+                        sentiment_emoji = "📈" if pred.get('predicted_sentiment', 0) > 0 else "📉"
+                        st.sidebar.metric(
+                            f"{sentiment_emoji} Sentiment Score",
+                            f"{pred.get('predicted_sentiment', 0):.2f}",
+                            f"{pred.get('price_impact_prediction', 0):.2%} price impact"
+                        )
+                        
+                        confidence = pred.get('confidence_score', 0)
+                        confidence_color = "🟢" if confidence > 0.7 else "🟡" if confidence > 0.4 else "🔴"
+                        st.sidebar.metric(
+                            f"{confidence_color} Confidence",
+                            f"{confidence:.1%}"
+                        )
+                        
+                        # Contributing factors
+                        factors = pred.get('contributing_factors', [])
+                        if factors:
+                            st.sidebar.write("**Key Factors:**")
+                            for factor in factors[:3]:  # Show top 3
+                                st.sidebar.write(f"• {factor}")
+            
+            # Sentiment Alerts
+            if st.sidebar.button("🚨 Check Sentiment Alerts"):
+                with st.sidebar.spinner("Checking alerts..."):
+                    alerts_response = fetch_api_data(f"/sentiment-alerts/{sentiment_symbol}")
+                    
+                    if alerts_response and alerts_response.get('alerts'):
+                        alerts = alerts_response['alerts']
+                        st.sidebar.write(f"**{len(alerts)} Active Alerts:**")
+                        
+                        for alert in alerts[:3]:  # Show top 3
+                            priority = alert.get('priority', 'MEDIUM')
+                            emoji = "🔴" if priority == "HIGH" else "🟡" if priority == "MEDIUM" else "🟢"
+                            st.sidebar.write(f"{emoji} {alert.get('message', 'Alert')}")
+                    else:
+                        st.sidebar.info("No sentiment alerts")
+        
+        except Exception as e:
+            st.sidebar.error(f"Sentiment feature unavailable: {str(e)[:50]}...")
+        
         # Also try API for additional data if available
         try:
             market_response = fetch_api_data("/market-data")
@@ -460,6 +623,15 @@ def main():
                 st.metric("🔄 Last Update", datetime.now().strftime("%H:%M:%S"))
         
         st.plotly_chart(create_anomaly_chart(anomalies_data), use_container_width=True, key=f"anomaly_chart_{datetime.now().timestamp()}")
+        
+        # Sentiment Forecast Chart
+        try:
+            sentiment_chart_data = fetch_api_data("/sentiment-dashboard-data")
+            if sentiment_chart_data and sentiment_chart_data.get('sentiment_data'):
+                st.subheader("🔮 Real-Time Sentiment Forecast")
+                st.plotly_chart(create_sentiment_chart(sentiment_chart_data['sentiment_data']), use_container_width=True, key=f"sentiment_chart_{datetime.now().timestamp()}")
+        except Exception as e:
+            st.info("🔮 Sentiment forecast will appear here when sentiment service is ready")
         
         # Two columns for content
         col_left, col_right = st.columns([2, 1])

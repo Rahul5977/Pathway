@@ -8,8 +8,12 @@ from pathlib import Path
 import json
 import uvicorn
 
-from config.settings import Settings
-from utils.logger import setup_logger
+from src.config.settings import Settings
+from src.utils.logger import setup_logger
+try:
+    from src.ai.sentiment_predictor_simple import sentiment_agent
+except ImportError:
+    sentiment_agent = None  # Fallback if sentiment predictor not available
 
 logger = setup_logger(__name__)
 
@@ -39,6 +43,32 @@ class AnomalyResponse(BaseModel):
 class AlertResponse(BaseModel):
     alerts: List[Dict[str, Any]]
     total_count: int
+    timestamp: str
+
+
+class SentimentPredictionRequest(BaseModel):
+    symbol: str
+    horizon: Optional[int] = 15  # minutes
+
+
+class SentimentPredictionResponse(BaseModel):
+    symbol: str
+    predicted_sentiment: float
+    price_impact_prediction: float
+    confidence_score: float
+    time_horizon_minutes: int
+    contributing_factors: List[str]
+    timestamp: str
+
+
+class SentimentSummaryResponse(BaseModel):
+    symbol: str
+    current_sentiment: Dict[str, float]
+    sentiment_trend: float
+    sentiment_momentum: float
+    prediction: Optional[Dict[str, Any]]
+    correlation: Dict[str, Any]
+    data_quality: Dict[str, Any]
     timestamp: str
 
 
@@ -392,13 +422,277 @@ def create_fastapi_app(settings: Settings) -> FastAPI:
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     
+    @app.post("/predict-sentiment", response_model=SentimentPredictionResponse)
+    async def predict_sentiment(request: SentimentPredictionRequest):
+        """Predict sentiment and price impact for a given symbol and time horizon."""
+        try:
+            symbol = request.symbol
+            horizon = request.horizon or 15
+            
+            logger.info(f"Received sentiment prediction request for {symbol} with horizon {horizon} minutes.")
+            
+            # Placeholder for actual sentiment analysis logic
+            # For now, we just return a mock response
+            predicted_sentiment = 0.75  # Mocked sentiment value
+            price_impact_prediction = 0.05  # Mocked price impact
+            confidence_score = 0.9  # Mocked confidence score
+            
+            # Get current sentiment from the agent
+            current_sentiment = sentiment_agent.get_current_sentiment(symbol)
+            logger.info(f"Current sentiment for {symbol}: {current_sentiment}")
+            
+            # Analyze sentiment trend and momentum
+            sentiment_trend = current_sentiment.get('trend', 0) * 100
+            sentiment_momentum = current_sentiment.get('momentum', 0) * 100
+            
+            # Prepare prediction details
+            prediction_details = {
+                "symbol": symbol,
+                "predicted_sentiment": predicted_sentiment,
+                "price_impact_prediction": price_impact_prediction,
+                "confidence_score": confidence_score,
+                "time_horizon_minutes": horizon,
+                "contributing_factors": [
+                    "Positive news sentiment",
+                    "Strong earnings report",
+                    "Market momentum"
+                ],
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            logger.info(f"Sentiment prediction for {symbol}: {prediction_details}")
+            
+            return SentimentPredictionResponse(
+                symbol=symbol,
+                predicted_sentiment=predicted_sentiment,
+                price_impact_prediction=price_impact_prediction,
+                confidence_score=confidence_score,
+                time_horizon_minutes=horizon,
+                contributing_factors=prediction_details["contributing_factors"],
+                timestamp=datetime.now().isoformat()
+            )
+        except Exception as e:
+            logger.error(f"Sentiment prediction error for {request.symbol}: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.get("/sentiment-summary", response_model=SentimentSummaryResponse)
+    async def get_sentiment_summary(
+        symbol: str,
+        include_prediction: bool = True
+    ):
+        """Get sentiment summary for a symbol, optionally including prediction."""
+        try:
+            # Get current sentiment from the agent
+            current_sentiment = sentiment_agent.get_current_sentiment(symbol)
+            logger.info(f"Current sentiment for {symbol}: {current_sentiment}")
+            
+            # Analyze sentiment trend and momentum
+            sentiment_trend = current_sentiment.get('trend', 0) * 100
+            sentiment_momentum = current_sentiment.get('momentum', 0) * 100
+            
+            summary = {
+                "symbol": symbol,
+                "current_sentiment": current_sentiment.get('values', {}),
+                "sentiment_trend": sentiment_trend,
+                "sentiment_momentum": sentiment_momentum,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Add prediction if requested
+            if include_prediction:
+                prediction = {
+                    "symbol": symbol,
+                    "predicted_sentiment": 0.75,  # Mocked sentiment value
+                    "price_impact_prediction": 0.05,  # Mocked price impact
+                    "confidence_score": 0.9,  # Mocked confidence score
+                    "time_horizon_minutes": 15,
+                    "contributing_factors": [
+                        "Positive news sentiment",
+                        "Strong earnings report",
+                        "Market momentum"
+                    ],
+                    "timestamp": datetime.now().isoformat()
+                }
+                summary["prediction"] = prediction
+            
+            logger.info(f"Sentiment summary for {symbol}: {summary}")
+            
+            return SentimentSummaryResponse(
+                symbol=symbol,
+                current_sentiment=current_sentiment.get('values', {}),
+                sentiment_trend=sentiment_trend,
+                sentiment_momentum=sentiment_momentum,
+                prediction=summary.get("prediction"),
+                correlation={},
+                data_quality={},
+                timestamp=datetime.now().isoformat()
+            )
+        except Exception as e:
+            logger.error(f"Error getting sentiment summary for {symbol}: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/predict-sentiment-impact", response_model=SentimentPredictionResponse)
+    async def predict_sentiment_impact(request: SentimentPredictionRequest):
+        """Predict price impact based on sentiment analysis"""
+        if not sentiment_agent:
+            raise HTTPException(status_code=503, detail="Sentiment prediction service not available")
+        
+        try:
+            # Update sentiment data
+            await sentiment_agent.update_sentiment_history(request.symbol)
+            
+            # Get prediction
+            prediction = await sentiment_agent.predict_sentiment_trajectory(
+                request.symbol, 
+                request.horizon
+            )
+            
+            if not prediction:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Unable to generate prediction for {request.symbol}. Insufficient data."
+                )
+            
+            return SentimentPredictionResponse(
+                symbol=prediction.symbol,
+                predicted_sentiment=prediction.predicted_sentiment,
+                price_impact_prediction=prediction.price_impact_prediction,
+                confidence_score=prediction.confidence_score,
+                time_horizon_minutes=prediction.time_horizon_minutes,
+                contributing_factors=prediction.contributing_factors,
+                timestamp=prediction.timestamp.isoformat()
+            )
+        
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error predicting sentiment impact for {request.symbol}: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.get("/sentiment-alerts/{symbol}")
+    async def get_sentiment_alerts(symbol: str):
+        """Get real-time sentiment-based alerts for a symbol"""
+        if not sentiment_agent:
+            return {"symbol": symbol, "alerts": [], "count": 0, "error": "Sentiment service not available"}
+        
+        try:
+            # Update sentiment data
+            await sentiment_agent.update_sentiment_history(symbol)
+            
+            # Generate alerts
+            alerts = await sentiment_agent.generate_sentiment_alerts(symbol)
+            
+            return {
+                "symbol": symbol,
+                "alerts": alerts,
+                "count": len(alerts),
+                "timestamp": datetime.now().isoformat()
+            }
+        
+        except Exception as e:
+            logger.error(f"Error getting sentiment alerts for {symbol}: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.get("/sentiment-summary/{symbol}", response_model=SentimentSummaryResponse)
+    async def get_comprehensive_sentiment_summary(symbol: str):
+        """Get comprehensive sentiment analysis summary"""
+        try:
+            # Update sentiment data
+            await sentiment_agent.update_sentiment_history(symbol)
+            
+            # Get comprehensive summary
+            summary = await sentiment_agent.get_sentiment_summary(symbol)
+            
+            if 'error' in summary:
+                raise HTTPException(status_code=404, detail=summary['error'])
+            
+            return SentimentSummaryResponse(
+                symbol=summary['symbol'],
+                current_sentiment=summary['current_sentiment'],
+                sentiment_trend=summary['sentiment_trend'],
+                sentiment_momentum=summary['sentiment_momentum'],
+                prediction=summary.get('prediction'),
+                correlation=summary['correlation'],
+                data_quality=summary['data_quality'],
+                timestamp=summary['timestamp']
+            )
+        
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error getting sentiment summary for {symbol}: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.get("/sentiment-dashboard-data")
+    async def get_sentiment_dashboard_data():
+        """Get sentiment data for all symbols for dashboard"""
+        try:
+            dashboard_data = {}
+            
+            for symbol in sentiment_agent.symbols:
+                # Update and get sentiment data
+                await sentiment_agent.update_sentiment_history(symbol)
+                summary = await sentiment_agent.get_sentiment_summary(symbol)
+                
+                if 'error' not in summary:
+                    dashboard_data[symbol] = {
+                        'current_sentiment': summary['current_sentiment']['overall'],
+                        'sentiment_trend': summary['sentiment_trend'],
+                        'prediction': summary.get('prediction', {}).get('predicted_sentiment', 0),
+                        'price_impact': summary.get('prediction', {}).get('price_impact', 0),
+                        'confidence': summary.get('prediction', {}).get('confidence', 0),
+                        'correlation': summary['correlation']['sentiment_price_correlation'],
+                        'last_update': summary['data_quality']['last_update']
+                    }
+            
+            return {
+                "sentiment_data": dashboard_data,
+                "timestamp": datetime.now().isoformat(),
+                "symbols_count": len(dashboard_data)
+            }
+        
+        except Exception as e:
+            logger.error(f"Error getting dashboard sentiment data: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/update-sentiment-models")
+    async def update_sentiment_models(background_tasks: BackgroundTasks):
+        """Trigger sentiment model retraining in background"""
+        try:
+            async def retrain_models():
+                for symbol in sentiment_agent.symbols:
+                    await sentiment_agent.save_model_state(symbol)
+                    logger.info(f"Updated sentiment model for {symbol}")
+            
+            background_tasks.add_task(retrain_models)
+            
+            return {
+                "message": "Sentiment model update initiated",
+                "symbols": sentiment_agent.symbols,
+                "timestamp": datetime.now().isoformat()
+            }
+        
+        except Exception as e:
+            logger.error(f"Error updating sentiment models: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
     return app
 
 
+# Create the app instance for uvicorn
+try:
+    from src.config.settings import Settings
+    settings = Settings()
+    app = create_fastapi_app(settings)
+except Exception as e:
+    # Fallback app in case of configuration issues
+    app = FastAPI(title="Market Anomaly Detector API", description="API with configuration issues")
+
 # For running with uvicorn directly
 if __name__ == "__main__":
-    from config.settings import settings
+    from src.config.settings import Settings
     
+    settings = Settings()
     app = create_fastapi_app(settings)
     uvicorn.run(
         app,
